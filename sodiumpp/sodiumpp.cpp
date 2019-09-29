@@ -120,6 +120,40 @@ std::string sodiumpp::crypto_box_open_afternm(const std::string &c,const std::st
                   );
 }
 
+std::string sodiumpp::crypto_box_seal(const std::string &m, const std::string &k){
+    size_t mlen = m.size() + crypto_box_ZEROBYTES;
+    unsigned char mpad[mlen];
+    for (size_t i = 0;i < crypto_box_ZEROBYTES;++i) mpad[i] = 0;
+    for (size_t i = crypto_box_ZEROBYTES;i < mlen;++i) mpad[i] = m[i - crypto_box_ZEROBYTES];
+    unsigned char cpad[mlen];
+    ::crypto_box_seal(cpad,mpad,mlen,
+                 (const unsigned char *) k.c_str()
+                 );
+    return std::string(
+                  (char *) cpad + crypto_box_BOXZEROBYTES,
+                  mlen - crypto_box_BOXZEROBYTES
+                  );
+}
+
+std::string sodiumpp::crypto_box_seal_open(const std::string &c, const std::string &k, const std::string &sk){
+    size_t clen = c.size() + crypto_box_BOXZEROBYTES;
+    unsigned char cpad[clen];
+    for (size_t i = 0;i < crypto_box_BOXZEROBYTES;++i) cpad[i] = 0;
+    for (size_t i = crypto_box_BOXZEROBYTES;i < clen;++i) cpad[i] = c[i - crypto_box_BOXZEROBYTES];
+    unsigned char mpad[clen];
+    if (::crypto_box_seal_open(mpad,cpad,clen,
+                                  (const unsigned char *) k.c_str(),
+                                  (const unsigned char *) sk.c_str()
+                                  ) != 0)
+        throw sodiumpp::crypto_error("ciphertext fails verification");
+    if (clen < crypto_box_ZEROBYTES)
+        throw sodiumpp::crypto_error("ciphertext too short"); // should have been caught by _open
+    return std::string(
+                  (char *) mpad + crypto_box_ZEROBYTES,
+                  clen - crypto_box_ZEROBYTES
+                  );
+}
+
 std::string sodiumpp::crypto_box_open(const std::string &c,const std::string &n,const std::string &pk,const std::string &sk)
 {
     if (pk.size() != crypto_box_PUBLICKEYBYTES) throw std::invalid_argument("incorrect public-key length");

@@ -34,6 +34,9 @@ extern "C" {
 #include <sodiumpp/z85.hpp>
 
 namespace sodiumpp {
+    std::string crypto_box_seal(const std::string &m, const std::string &k);
+    std::string crypto_box_seal_open(const std::string &c, const std::string &k, const std::string &sk);
+
     std::string crypto_auth(const std::string &m,const std::string &k);
     void crypto_auth_verify(const std::string &a,const std::string &m,const std::string &k);
     /**
@@ -552,6 +555,96 @@ namespace sodiumpp {
         ~unboxer() {
             memzero(k);
             munlock(k);
+        }
+    };
+}
+
+/**
+     * Boxes a series of messages between sender's secret key and a receiver's public key using automatically generated nonces.
+     * The sequential part of nonces is even if the sender's public key is lexicographically smaller than the receiver's public key, and uneven (odd, not divisible by 2) otherwise.
+     * The constant part of nonces is randomly generated or supplied by the user.
+     *
+     * The template parameter noncetype specifies the type of nonce that should be used by the boxer.
+     *
+     * Splits the box operation into crypto_box_beforenm and crypto_box_afternm for increased performance.
+     * The beforenm parameter is locked into memory for the lifetime of the boxer and securely erased at destroy time.
+     */
+    template <typename noncetype>
+    class sealedboxer {
+    private:
+        std::string k;
+    public:
+        /**
+         * Construct from the receiver's public key pk
+         */
+        sealedboxer(const box_public_key& pk) {
+            k = pk.get().to_binary();
+            mlock(k);
+        }
+        /**
+         * Box the message m and return the boxed message in the specified encoding.
+         * Automatically increments the nonce after each message.
+         * The nonce that was used will be put in used_n.
+         */
+        encoded_bytes box(std::string message, encoding enc=encoding::binary) {
+            std::string c = crypto_box_seal(message,k);
+            return encoded_bytes(encode_from_binary(c, enc), enc);
+        }
+        /**
+         * Securely erase the crypto_box_afternm parameter,
+         * and unlock the memory that contained it.
+         */
+        ~sealedboxer() {
+            memzero(k);
+            munlock(k);
+        }
+    };
+    
+    /**
+     * Unboxes a series of messages between sender's public key and a receiver's secret key using automatically generated nonces.
+     * The sequential part of nonces is even if the sender's public key is lexicographically smaller than the receiver's public key, and uneven (odd, not divisible by 2) otherwise.
+     * The constant part of nonces is supplied by the user.
+     *
+     * The template parameter noncetype specifies the type of nonce that should be used by the boxer.
+     *
+     * Splits the box operation into crypto_box_beforenm and crypto_box_open_afternm for increased performance.
+     * The beforenm parameter is locked into memory for the lifetime of the unboxer and securely erased at destroy time.
+     */
+    template <typename noncetype>
+    class sealedunboxer {
+    private:
+        noncetype n;
+        std::string k;
+        std::string sk;
+    public:
+        /**
+         * Construct from the recipient's public key pk, the recipient's secret key sk and an encoded constant part for the nonces.
+         */
+        unboxer(const box_public_key& pk, const box_secret_key& sk){
+            k = pk.get().to_binary();
+            sk = sk.get().to_binary();
+            mlock(k);
+            mlock(sk);
+        }
+        /**
+         * Unbox the encoded message m and return the unboxed message.
+         * Automatically increments the nonce after each message.
+         */
+        std::string unbox(const encoded_bytes& ciphertext) {
+            std::string m = crypto_box_open_afternm(ciphertext.to_binary(), n.get().to_binary(), k);
+            n.increment();
+            return m;
+        }
+        /**
+         * Securely erase the crypto_box_afternm parameter,
+         * and unlock the memory that contained it.
+         */
+        ~unboxer() {
+            memzero(k);
+            munlock(k);
+
+            memzero(sk);
+            munlock(sk);
         }
     };
 }
